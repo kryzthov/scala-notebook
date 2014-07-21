@@ -1,9 +1,14 @@
-package com.bwater.notebook
-package client
+package com.bwater.notebook.client
 
-import akka.actor.{ActorLogging, Props, Actor}
-import kernel._
-import java.io.File
+import com.bwater.notebook.Match
+import com.bwater.notebook.kernel.Failure
+import com.bwater.notebook.kernel.Incomplete
+import com.bwater.notebook.kernel.Repl
+import com.bwater.notebook.kernel.Success
+import akka.actor.Actor
+import akka.actor.Props
+import akka.actor.actorRef2Scala
+import akka.actor.ActorLogging
 
 /**
  * Author: Ken
@@ -45,7 +50,11 @@ case class ObjectInfoResponse(found: Boolean, name: String, callDef: String, cal
  * @param initScripts List of scala source strings to be executed during REPL startup.
  * @param compilerArgs Command line arguments to pass to the REPL compiler
  */
-class ReplCalculator(initScripts: List[String], compilerArgs: List[String]) extends Actor with akka.actor.ActorLogging {
+class ReplCalculator(
+    initScripts: List[String],
+    compilerArgs: List[String]
+) extends Actor with ActorLogging {
+
   private lazy val repl = new Repl(compilerArgs)
 
   // Make a child actor so we don't block the execution on the main thread, so that interruption can work

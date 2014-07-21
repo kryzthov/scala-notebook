@@ -1,49 +1,51 @@
 package com.bwater.notebook
 
+import java.io.File
+import java.io.IOException
+import java.net.InetAddress
+import java.net.URLEncoder
+
 import org.apache.commons.io.FileUtils
+import org.apache.log4j.PropertyConfigurator
 import org.jboss.netty.handler.stream.ChunkedWriteHandler
+
+import com.bwater.notebook.server.ClientAuth
+import com.bwater.notebook.server.Dispatcher
+import com.bwater.notebook.server.DispatcherSecurity
+import com.bwater.notebook.server.Insecure
+import com.bwater.notebook.server.ScalaNotebookConfig
+import com.bwater.notebook.util.Logging
+
 import unfiltered.netty.Http
 import unfiltered.netty.Resources
-import com.bwater.notebook.util.Logging
-import org.apache.log4j.PropertyConfigurator
-import server._
-import java.io.{ IOException, File, Reader }
-import java.net.{ InetAddress, URLEncoder }
-import com.typesafe.config.Config
-import java.io.BufferedReader
-import com.typesafe.config.ConfigFactory
-import java.io.FileReader
-import com.typesafe.config.ConfigParseOptions
-import com.typesafe.config.ConfigSyntax
-
-/**
- * Author: Ken
- */
+import unfiltered.netty._
 
 /**embedded server */
 object Server extends Logging {
 
   FileUtils.forceMkdir(new File("logs"))
 
-
   def openBrowser(url: String) {
-    println("Launching browswer on %s".format(url))
+    logInfo("Opening URL %s".format(url))
     unfiltered.util.Browser.open(url) match {
-      case Some(ex) => println("Cannot open browser to %s\n%s".format(url, ex.toString))
-      case None =>
+      case Some(ex) => logError("Error opening URL %s in browser:\n%s".format(url, ex.toString))
+      case None => ()
     }
   }
-  
+
+  /**
+   * Scala Notebook server entry point.
+   */
   def main(args: Array[String]) {
     startServer(args, ScalaNotebookConfig.withOverrides(ScalaNotebookConfig.defaults))(openBrowser)
   }
 
-  private val preferredPort = 8899
+  private val DefaultPreferredPort = 8899
 
   // This is basically unfiltered.util.Port.any with a preferred port, and is host-aware. Like the original, this
   // approach can be really unlucky and have someone else steal our port between opening this socket and when unfiltered
   // opens it again, but oh well...
-  private def choosePort(host: String) = {
+  private def choosePort(host: String, preferredPort: Int) = {
     val addr = InetAddress.getByName(host)
 
     // 50 for the queue size is java's magic number, not mine. The more common ServerSocket constructor just
@@ -59,22 +61,32 @@ object Server extends Logging {
     p
   }
 
-
   def startServer(args: Array[String], config: ScalaNotebookConfig)(startAction: (String) => Unit) {
     PropertyConfigurator.configure(getClass.getResource("/log4j.server.properties"))
-    logDebug("Classpath: " + System.getProperty("java.class.path"))
+    val classpath = System.getProperty("java.class.path").split(":")
+    logDebug("ScalaNotebook server classpath:\n%s".format(classpath.map { cp => "\t" + cp }.mkString("\n")))
 
     val secure = !args.contains("--disable_security")
 
     logInfo("Running SN Server in " + config.notebooksDir.getAbsolutePath)
-    val host = "127.0.0.1"
-    val port = choosePort(host)
+    val NotebookArg = "--notebook=(\\S+)".r
+    val notebook = args.collect { case NotebookArg(name) => name }.headOption
+
+    val HostArg = "--host=(\\S+)".r
+    val host = args.collect { case HostArg(name) => name }.headOption.getOrElse("localhost")
+
+    val PortArg = "--port=(\\S+)".r
+    val preferredPort = args.collect { case PortArg(name) => name }.headOption.map{_.toInt}.getOrElse(DefaultPreferredPort)
+
+    logInfo("Starting server on %s:%s".format(host, preferredPort))
+
+    val port = choosePort(host, preferredPort)
+    if (preferredPort != DefaultPreferredPort) {
+      require(port == preferredPort)
+    }
+
     val security = if (secure) new ClientAuth(host, port) else Insecure
 
-    val NotebookArg = "--notebook=(\\S+)".r
-    val notebook = args.collect {
-      case NotebookArg(name) => name
-    }.headOption
     val queryString =
       for (name <- notebook)
       yield "?dest=" + URLEncoder.encode("/view/" + name, "UTF-8")
@@ -86,10 +98,18 @@ object Server extends Logging {
   }
 
   /* TODO: move host, port, security settings into config? */
-  def startServer(config: ScalaNotebookConfig, host: String, port: Int, security: DispatcherSecurity)(startAction: (Http, Dispatcher) => Unit) {
-
+  def startServer(
+      config: ScalaNotebookConfig,
+      host: String,
+      port: Int,
+      security: DispatcherSecurity
+  )(
+      startAction: (Http, Dispatcher) => Unit
+  ) {
     if (!config.notebooksDir.exists()) {
-      logWarn("Base directory %s for Scala Notebook server does not exist.  Creating, but your server may be misconfigured.".format(config.notebooksDir))
+      logWarn(
+          ("Base directory %s for Scala Notebook server does not exist. "
+          + "Creating, but your server may be misconfigured.").format(config.notebooksDir))
       config.notebooksDir.mkdirs()
     }
 
@@ -105,13 +125,14 @@ object Server extends Logging {
     val templatesPlan = unfiltered.netty.cycle.Planify(app.WebServer.otherIntent)
     val kernelPlan = unfiltered.netty.async.Planify(withCSRFKeyAsync(app.WebServer.kernelIntent))
     val loggerPlan = unfiltered.netty.cycle.Planify(new ReqLogger().intent)
-
-    val obsInt = unfiltered.netty.websockets.Planify(withWSAuth(new ObservableIntent(app.system).webSocketIntent)).onPass(_.sendUpstream(_))
+    val obsInt = unfiltered.netty.websockets.Planify(withWSAuth(new ObservableIntent(app.system).webSocketIntent))
+        .onPass(_.sendUpstream(_))
 
     val iPythonRes = Resources(getClass.getResource("/from_ipython/"), 3600, true)
     val thirdPartyRes = Resources(getClass.getResource("/thirdparty/"), 3600, true)
 
-    //TODO: absolute URL's may not be portable, should they be supported?  If not, are resources defined relative to notebooks dir or module root?
+    // TODO: absolute URL's may not be portable, should they be supported?
+    // If not, are resources defined relative to notebooks dir or module root?
     def userResourceURL(res: File) = {
       if (res.isAbsolute()) res.toURI().toURL()
       else new File(config.notebooksDir, res.getPath()).toURI().toURL()
@@ -126,7 +147,8 @@ object Server extends Logging {
     }
     implicit def Pipe[A](value: A) = new Pipe(value)
 
-    def resourcePlan(res: Resources*)(h: Http) = res.foldLeft(h)((h, r) => h.plan(r).makePlan(new ChunkedWriteHandler))
+    def resourcePlan(res: Resources*)(h: Http) =
+        res.foldLeft(h)((h, r) => h.plan(r).makePlan(new ChunkedWriteHandler))
 
     http
       .handler(obsInt)

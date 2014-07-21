@@ -7,8 +7,17 @@
 
 package com.bwater.notebook.kernel
 
-import com.bwater.notebook.{Match, StringCompletor}
+import com.bwater.notebook.Match
+import com.bwater.notebook.StringCompletor
 
 class TestStringCompletor extends StringCompletor {
-  def complete(stringToComplete: String) = (stringToComplete, if (stringToComplete.toLowerCase.startsWith("usa")) Seq("usacpi", "usangdp").map(Match(_, Map("Location" -> "InflationEstimate/master"))) else Seq())
+
+  def complete(stringToComplete: String) = {
+    (stringToComplete,
+        if (stringToComplete.toLowerCase.startsWith("usa"))
+          Seq("usacpi", "usangdp").map(Match(_, Map("Location" -> "InflationEstimate/master")))
+        else
+          Seq())
+  }
+
 }

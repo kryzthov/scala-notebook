@@ -1,26 +1,37 @@
 package com.bwater.notebook.server
 
-import java.io._
-import collection.JavaConversions._
-import com.bwater.notebook.util.Logging
-import com.typesafe.config._
-import com.bwater.notebook.kernel.ConfigUtils._
-import com.bwater.notebook.Server
-import org.apache.commons.io.FileUtils
+import java.io.BufferedReader
+import java.io.File
+import java.io.FileReader
+import java.io.InputStream
 import java.net.URL
-import com.bwater.notebook.kernel.pfork.ProcessFork
-import com.bwater.notebook.Server
-import scala.collection.mutable.MapBuilder
-import util.control.Exception.allCatch
+
+import scala.collection.JavaConversions.asJavaIterable
+import scala.collection.JavaConversions.mapAsJavaMap
+import scala.util.control.Exception.allCatch
+
+import org.apache.commons.io.FileUtils
+
+import com.bwater.notebook.kernel.ConfigUtils.configToRichConfig
+import com.bwater.notebook.util.Logging
+import com.typesafe.config.Config
+import com.typesafe.config.ConfigFactory
+import com.typesafe.config.ConfigParseOptions
+import com.typesafe.config.ConfigSyntax
 
 /**
  * Configuration for scala notebook server, kernel, and kernel VM.
  *
  * Mostly exists for merge behavior in kernelInit and serverResources.
  */
-case class ScalaNotebookConfig(kernelInit: List[Script], serverResources: List[File], kernelCompilerArgs: List[String], kernelVMConfig: Config) {
+case class ScalaNotebookConfig(
+    kernelInit: List[Script],
+    serverResources: List[File],
+    kernelCompilerArgs: List[String],
+    kernelVMConfig: Config
+) {
   def notebooksDir = kernelVMConfig.get("notebooks.dir").map(new File(_)).getOrElse(new File("."))
-  
+
   def projectName = kernelVMConfig.get("notebooks.name").getOrElse(notebooksDir.getPath())
 
   def kernelInitScripts: List[String] = kernelInit.map(_.script)
@@ -31,7 +42,6 @@ case class ScalaNotebookConfig(kernelInit: List[Script], serverResources: List[F
 
 object ScalaNotebookConfig extends Logging {
 
-  
   def apply(cfg: Config) = {
     val config = cfg.resolve()
     val kInit = config.getArray("kernel.init").getOrElse(Nil).map(url => ScriptFromURL(new URL(url)))
@@ -42,8 +52,8 @@ object ScalaNotebookConfig extends Logging {
 
   def apply(mappings: (String, Any)*): ScalaNotebookConfig =
     apply(ConfigFactory.parseMap(javaficate(mappings.toMap).asInstanceOf[java.util.Map[String, Any]]))
-    
-  
+
+
   lazy val defaults = new ScalaNotebookConfig(snKernelInit :: Nil, Nil, Nil, ConfigFactory.empty)
 
   def propertyOverrides = {
@@ -51,7 +61,7 @@ object ScalaNotebookConfig extends Logging {
     val overrides = if (defaultCfg.hasPath("notebook")) allCatch.opt(defaultCfg.getConfig("notebook")).getOrElse(ConfigFactory.empty) else ConfigFactory.empty
     apply(overrides)
   }
-  
+
   /**
    * Augments the specified config: [default overrides] ++ [user overrides] ++ base
    */

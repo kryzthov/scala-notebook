@@ -6,20 +6,34 @@
  */
 package com.bwater.notebook.kernel.remote
 
-import com.bwater.notebook.kernel.pfork.{ProcessInfo, BetterFork, ForkableProcess}
-import akka.actor._
-import com.typesafe.config.ConfigFactory
-import akka.remote.{RemoteScope, RemoteActorRefProvider}
-import scala.concurrent.Future
-import scala.concurrent.ExecutionContext.Implicits.global
 import java.io.File
-import org.apache.commons.io.FileUtils
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Author: Ken
- */
-class RemoteActorProcess extends ForkableProcess{
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
+
+import org.apache.commons.io.FileUtils
+
+import com.bwater.notebook.kernel.pfork.BetterFork
+import com.bwater.notebook.kernel.pfork.ForkableProcess
+import com.bwater.notebook.kernel.pfork.ProcessInfo
+import com.typesafe.config.ConfigFactory
+
+import akka.actor.Actor
+import akka.actor.ActorRefFactory
+import akka.actor.ActorSystem
+import akka.actor.AddressFromURIString
+import akka.actor.Deploy
+import akka.actor.ExtendedActorSystem
+import akka.actor.Extension
+import akka.actor.ExtensionKey
+import akka.actor.PoisonPill
+import akka.actor.Props
+import akka.actor.actorRef2Scala
+import akka.remote.RemoteActorRefProvider
+import akka.remote.RemoteScope
+
+class RemoteActorProcess extends ForkableProcess {
   // http://stackoverflow.com/questions/14995834/programmatically-obtain-ephemeral-port-with-akka
   var _system: ActorSystem = null
 
@@ -39,7 +53,7 @@ class RemoteActorProcess extends ForkableProcess{
 
     val address = GetAddress(_system).address
     address.toString
-//    address.port.get?OrElse(sys.error("not a remote actor system: %s".format(cfg))).toString
+    // address.port.getOrElse(sys.error("not a remote actor system: %s".format(cfg))).toString
   }
 
   def waitForExit() {
@@ -47,6 +61,8 @@ class RemoteActorProcess extends ForkableProcess{
     println("waitForExit complete")
   }
 }
+
+// —————————————————————————————————————————————————————————————————————————————————————————————————
 
 class FindAddressImpl(system: ExtendedActorSystem) extends Extension {
   def address = system.provider match {
@@ -58,6 +74,8 @@ class FindAddressImpl(system: ExtendedActorSystem) extends Extension {
 object GetAddress extends ExtensionKey[FindAddressImpl]
 case object RemoteShutdown
 
+// —————————————————————————————————————————————————————————————————————————————————————————————————
+
 class ShutdownActor extends Actor {
   override def postStop() {
     // KV: I tried to do a context.system.shutdown() here, but the system would often hang when multiple actors were in play.
@@ -68,6 +86,8 @@ class ShutdownActor extends Actor {
 
   def receive = Map.empty
 }
+
+// —————————————————————————————————————————————————————————————————————————————————————————————————
 
 /**
  * Represents a running remote actor system, with an address and the ability to kill it
@@ -88,12 +108,13 @@ class RemoteActorSystem(localSystem: ActorSystem, info: ProcessInfo, remoteConte
 
 }
 
+// —————————————————————————————————————————————————————————————————————————————————————————————————
+
 /**
  * Create a remote actor system
  */
 object RemoteActorSystem {
-  val nextId = new AtomicInteger(1)
-  def spawn(system: ActorSystem, configFile:String): Future[RemoteActorSystem] = {
+  def spawn(system: ActorSystem, configFile: String): Future[RemoteActorSystem] = {
     val cookiePath = AkkaConfigUtils.requiredCookie(system.settings.config) match {
       case Some(cookie) =>
         val cookieFile = new File(".", ".akka-cookie")
@@ -101,6 +122,8 @@ object RemoteActorSystem {
         cookieFile.getAbsolutePath
       case _ => ""
     }
-    new BetterFork[RemoteActorProcess](system.dispatcher).execute(configFile, cookiePath) map { new RemoteActorSystem(system, _) }
+    new BetterFork[RemoteActorProcess](system.dispatcher)
+        .execute(configFile, cookiePath)
+        .map { new RemoteActorSystem(system, _) }
   }
 }

@@ -7,37 +7,44 @@
 
 package com.bwater.notebook.kernel
 
-import java.io.File
+import scala.collection.JavaConverters.asScalaBufferConverter
+
 import com.typesafe.config.Config
-import collection.JavaConversions._
 import com.typesafe.config.ConfigException
 
 
 object ConfigUtils {
-  
+
   implicit def configToRichConfig(config: Config) = new EasyConfig(config)
 
   class EasyConfig(config: Config) {
-    def get(key: String) = if (config.hasPath(key)) Some(config.getString(key)) else None
+    def get(key: String) = {
+      if (config.hasPath(key))
+        Some(config.getString(key))
+      else
+        None
+    }
 
     def getArray(key: String): Option[List[String]] = {
       if (config.hasPath(key)) {
         Some(configPathAsList(config, key))
-      } else None
+      } else {
+        None
+      }
     }
-    
-    def getMem(key: String) = get(key) map parseMem
+
+    def getMem(key: String) = get(key).map(parseMem)
   }
-  
-  private def configPathAsList(c: Config, path: String) = {
-    scala.util.control.Exception.allCatch.either(c.getStringList(path).toList) match {
-          /* Read scalar value as list for backwards compat with config that has been converted from scalar to list. */
-          case Left(_: ConfigException.WrongType) => List(c.getString(path))
-          case Left(e) => throw e
-          case Right(v) => v
-        }
+
+  private def configPathAsList(c: Config, path: String): List[String] = {
+    scala.util.control.Exception.allCatch.either(c.getStringList(path).asScala) match {
+      /* Read scalar value as list for backwards compat with config that has been converted from scalar to list. */
+      case Left(_: ConfigException.WrongType) => List(c.getString(path))
+      case Left(e) => throw e
+      case Right(v) => v.toList
+    }
   }
-  
+
   private val MemSpec = """\s*(\d+)\s*([kKmMgG]?)""".r
 
   private def parseMem(memString: String) = {

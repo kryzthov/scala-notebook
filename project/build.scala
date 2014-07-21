@@ -29,10 +29,15 @@ object NotebookBuild extends Build {
       Resolver.typesafeRepo("releases"),
       Resolver.typesafeIvyRepo("releases"),
       Resolver.typesafeIvyRepo("snapshots")
-  ),
+    ),
 
     compileOrder := CompileOrder.Mixed,
-    publishMavenStyle := false,
+    publishMavenStyle := true,
+    publishArtifact in (Test, packageDoc) := false,
+    publishArtifact in (Test, packageSrc) := false,
+    publishArtifact in (Compile, packageDoc) := false,
+    publishArtifact in (Compile, packageSrc) := false,
+    publishTo := Some(Resolver.file("file",  new File("repo"))),
     javacOptions ++= Seq("-Xlint:deprecation", "-g"),
     scalacOptions += "-deprecation",
     testOptions += Tests.Argument(TestFrameworks.JUnit, "-q", "-v") //Suppress test output unless there is a failure

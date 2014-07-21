@@ -3,11 +3,8 @@ import akka.pattern.AskSupport
 import scala.concurrent._
 import akka.testkit.{ImplicitSender, TestKit}
 import akka.util.Timeout
-import com.bwater.notebook.client.ExecuteRequest
-import com.bwater.notebook.client.{ExecuteResponse, ExecuteRequest}
-import com.bwater.notebook.Kernel
 import com.bwater.notebook.kernel.remote.AkkaConfigUtils
-import com.bwater.notebook.server.{CalcWebSocketService, SessionRequest, WebSockWrapper}
+import com.bwater.notebook.server.{CalcWebSocketService, WebSockWrapper}
 import com.typesafe.config.ConfigFactory
 import java.util.concurrent.{LinkedBlockingQueue, ArrayBlockingQueue, BlockingQueue}
 import net.liftweb.json.JsonAST.JInt
@@ -24,6 +21,10 @@ import scala.concurrent.ExecutionContext.Implicits.global
  * Author: Ken
  */
 class KernelTests(_system: ActorSystem) extends TestKit(_system) with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll with MockFactory with AskSupport {
+  import com.bwater.notebook.Kernel
+  import com.bwater.notebook.client.ExecuteRequest
+  import com.bwater.notebook.client.{ExecuteResponse, ExecuteRequest}
+  import com.bwater.notebook.server.SessionRequest
 
   def this() = this(ActorSystem("MySpec", AkkaConfigUtils.requireCookie(ConfigFactory.load("subprocess-test"), "Cookie")))
 

@@ -1,0 +1,21 @@
+To start the Scala notebook:
+
+  $ sbt clean package publish
+
+This produces Maven artifacts in the $PROJECT/repo directory.
+
+Use the 'loader' tool from devtools (branch named 'loader') to generate a runtime classpath.
+
+$ classpath=$(loader \
+    --maven-local=/tmp/repo \
+    --maven-remotes="file:///home/taton/github/scala-notebook/repo,http://repo.maven.apache.org/maven2,https://repo.wibidata.com/artifactory/kiji-packages,https://repository.cloudera.com/artifactory/cloudera-repos,http://conjars.org/repo,http://repository.jboss.org/nexus/content/groups/public/" \
+    classpath \
+    --target=com.bwater:notebook-server_2.10:0.3.0-SNAPSHOT)
+
+Run the notebook server:
+
+$ java \
+    -Xmx2G \
+    -classpath "$classpath" \
+    com.bwater.notebook.Server \
+    --disable_security

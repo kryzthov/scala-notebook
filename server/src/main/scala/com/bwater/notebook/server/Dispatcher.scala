@@ -1,31 +1,76 @@
-package com.bwater.notebook
-package server
+package com.bwater.notebook.server
 
-import unfiltered.Cookie
-import unfiltered.netty.websockets.{Pass => _, _}
-import unfiltered.request._
-import net.liftweb.json._
-import net.liftweb.json.JsonDSL._
-import akka.actor._
-import akka.remote.RemoteClientLifeCycleEvent
 import java.net.URLDecoder
-import java.io.File
 import java.util.UUID
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
-import com.typesafe.config.ConfigFactory
-import client._
-import kernel.remote.{Subprocess, AkkaConfigUtils, VMManager}
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+
+import com.bwater.notebook.Kernel
+import com.bwater.notebook.KernelManager
+import com.bwater.notebook.NBSerializer
+import com.bwater.notebook.client.CompletionRequest
+import com.bwater.notebook.client.ExecuteRequest
+import com.bwater.notebook.client.ObjectInfoRequest
 import com.bwater.notebook.util.Logging
+import com.typesafe.config.ConfigFactory
+import com.bwater.notebook.kernel.remote.AkkaConfigUtils
+
+import akka.actor.Actor
+import akka.actor.ActorSystem
+import akka.actor.Props
+import akka.actor.actorRef2Scala
+import akka.remote.RemoteClientLifeCycleEvent
+import net.liftweb.json.JField
+import net.liftweb.json.JInt
+import net.liftweb.json.JString
+import net.liftweb.json.JsonDSL.pair2Assoc
+import net.liftweb.json.JsonDSL.string2jvalue
+import net.liftweb.json.compact
+import net.liftweb.json.parse
+import net.liftweb.json.render
+import unfiltered.Cookie
 import unfiltered.netty.RequestBinding
-import unfiltered.response._
+import unfiltered.netty.websockets.Close
+import unfiltered.netty.websockets.Error
+import unfiltered.netty.websockets.Message
+import unfiltered.netty.websockets.Open
+import unfiltered.netty.websockets.Text
 import unfiltered.request.Accepts.Accepting
-import java.util.concurrent.ConcurrentHashMap
-import scala.collection.JavaConverters._
+import unfiltered.request.Body
+import unfiltered.request.Cookies
+import unfiltered.request.DELETE
+import unfiltered.request.GET
+import unfiltered.request.HttpRequest
+import unfiltered.request.POST
+import unfiltered.request.PUT
+import unfiltered.request.Params
+import unfiltered.request.Path
+import unfiltered.request.Seg
+import unfiltered.response.CharContentType
+import unfiltered.response.Conflict
+import unfiltered.response.Forbidden
+import unfiltered.response.HtmlContent
+import unfiltered.response.InternalServerError
+import unfiltered.response.Json
+import unfiltered.response.JsonContent
+import unfiltered.response.NotFound
+import unfiltered.response.Ok
+import unfiltered.response.Pass
+import unfiltered.response.PlainTextContent
+import unfiltered.response.Redirect
+import unfiltered.response.ResponseHeader
+import unfiltered.response.ResponseString
+import unfiltered.response.SetCookies
+
+import unfiltered.request._
+
 
 /** unfiltered plan */
-class Dispatcher(protected val config: ScalaNotebookConfig,
-                 domain: String,
-                 port: Int) extends NotebookSession {
+class Dispatcher(
+    protected val config: ScalaNotebookConfig,
+    domain: String,
+    port: Int
+) extends NotebookSession {
 
   val executionCounter = new AtomicInteger(0)
 
@@ -55,7 +100,7 @@ class Dispatcher(protected val config: ScalaNotebookConfig,
         case Message(socket, Text(msg)) =>
           for (calcService <- kernelIdToCalcService.get(kernelId)) {
 
-            logDebug("Message for " + kernelId + ":" + msg)
+            logDebug("Message for " + kernelId + ":\n" + msg)
 
             val json = parse(msg)
 
@@ -117,7 +162,7 @@ class Dispatcher(protected val config: ScalaNotebookConfig,
           nbm.save(id, name, nb, overwrite)
           PlainTextContent ~> Ok
         } catch {
-          case _ :NotebookExistsException => PlainTextContent ~> Conflict
+          case _: NotebookExistsException => PlainTextContent ~> Conflict
         }
 
       case req@DELETE(Path(Seg("notebooks" :: Encoded(name) :: Nil))) =>

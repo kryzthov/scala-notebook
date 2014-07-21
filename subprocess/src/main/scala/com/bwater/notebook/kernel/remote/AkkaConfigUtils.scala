@@ -7,9 +7,10 @@
 
 package com.bwater.notebook.kernel.remote
 
-import com.typesafe.config.{ConfigFactory, Config}
-import scala.collection.JavaConversions._
+import scala.collection.JavaConversions.mapAsJavaMap
 
+import com.typesafe.config.Config
+import com.typesafe.config.ConfigFactory
 
 /**
  *

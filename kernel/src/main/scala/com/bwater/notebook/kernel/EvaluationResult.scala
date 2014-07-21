@@ -7,14 +7,14 @@
 
 package com.bwater.notebook.kernel
 
-import xml.NodeSeq
+import scala.xml.NodeSeq
 
 /**
  * Result of evaluating something in the REPL.
  *
- * The difference between Incomplete and Failure is Incomplete means
- * the expression failed to compile whereas Failure means an exception
- * was thrown during executing the code.
+ * Difference between Incomplete and Failure:
+ *   <li> Incomplete: the expression failed to compile </li>
+ *   <li> Failure: an exception was thrown while executing the code </li>
  */
 sealed abstract class EvaluationResult
 

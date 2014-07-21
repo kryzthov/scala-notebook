@@ -7,28 +7,49 @@
 
 package com.bwater.notebook.kernel
 
-import java.io.{StringWriter, PrintWriter, ByteArrayOutputStream}
-import tools.nsc.Settings
-import tools.nsc.interpreter._
-import tools.nsc.interpreter.Completion.{Candidates, ScalaCompleter}
-import tools.jline.console.completer.{ArgumentCompleter, Completer}
-import tools.nsc.interpreter.Completion.Candidates
-import tools.nsc.interpreter.Results.{Incomplete => ReplIncomplete, Success => ReplSuccess, Error}
-import scala.Either
+import java.io.ByteArrayOutputStream
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.util.ArrayList
-import collection.JavaConversions._
-import com.bwater.notebook.{Widget, Match}
-import xml.{NodeSeq, Text}
-import collection.JavaConversions
-import java.net.{URLDecoder, JarURLConnection}
+import scala.collection.mutable
+import scala.collection.JavaConverters.asScalaBufferConverter
+import scala.tools.jline.console.completer.ArgumentCompleter
+import scala.tools.jline.console.completer.Completer
+import scala.tools.nsc.Settings
+import scala.tools.nsc.interpreter.Completion.Candidates
+import scala.tools.nsc.interpreter.Completion.ScalaCompleter
+import scala.tools.nsc.interpreter.HackIMain
+import scala.tools.nsc.interpreter.JLineCompletion
+import scala.tools.nsc.interpreter.JLineDelimiter
+import scala.tools.nsc.interpreter.JList
+import scala.tools.nsc.interpreter.Parsed
+import scala.tools.nsc.interpreter.Results.Error
+import scala.tools.nsc.interpreter.Results.{Incomplete => ReplIncomplete}
+import scala.tools.nsc.interpreter.Results.{Success => ReplSuccess}
 import scala.util.control.NonFatal
+import scala.xml.NodeSeq
+import scala.xml.Text
+import com.bwater.notebook.Match
+import com.bwater.notebook.Widget
+import com.bwater.notebook.util.Logging
+import scala.reflect.io.VirtualDirectory
 
-class Repl(compilerOpts: List[String]) {
+/**
+ * This is what actually executes REPL statements, relying on a hacked IMain instance.
+ */
+final class Repl(compilerOpts: List[String]) extends Logging {
+  import Repl._
+
+  LOG.info("Initializing new REPL instance: {}", this)
+  instances += this
 
   def this() = this(Nil)
 
+  type OutputProcessor = (String => Unit)
+  private final val NullOutputProcessor: OutputProcessor = { output: String => () }
+
   class MyOutputStream extends ByteArrayOutputStream {
-    var aop: String => Unit = x => ()
+    var aop: OutputProcessor = NullOutputProcessor
 
     override def write(i: Int): Unit = {
       // CY: Not used...
@@ -51,25 +72,26 @@ class Repl(compilerOpts: List[String]) {
   }
 
 
-  private lazy val stdoutBytes = new MyOutputStream
-  private lazy val stdout = new PrintWriter(stdoutBytes)
+  private val stdoutBytes = new MyOutputStream
+  private val stdout = new PrintWriter(stdoutBytes)
 
-  private lazy val interp = {
+  private val interp: HackIMain = {
     val settings = new Settings
     settings.embeddedDefaults[Repl]
-    if (!compilerOpts.isEmpty()) settings.processArguments(compilerOpts, false)
+    if (!compilerOpts.isEmpty)
+      settings.processArguments(compilerOpts, false)
 
     // TODO: This causes tests to fail in SBT, but work in IntelliJ
     // The java CP in SBT contains only a few SBT entries (no project entries), while
     // in intellij it has the full module classpath + some intellij stuff.
     settings.usejavacp.value = true
     // println(System.getProperty("java.class.path"))
-    val i = new HackIMain(settings, stdout)
-    i.initializeSynchronous()
-    i
+    val imain = new HackIMain(settings, stdout)
+    imain.initializeSynchronous()
+    imain
   }
 
-  private lazy val completion = new JLineCompletion(interp)
+  private val completion = new JLineCompletion(interp)
 
   private def scalaToJline(tc: ScalaCompleter): Completer = new Completer {
     def complete(_buf: String, cursor: Int, candidates: JList[CharSequence]): Int = {
@@ -80,19 +102,19 @@ class Repl(compilerOpts: List[String]) {
     }
   }
 
-  private lazy val argCompletor = {
+  private val argCompletor = {
     val arg = new ArgumentCompleter(new JLineDelimiter, scalaToJline(completion.completer()))
     // turns out this is super important a line
     arg.setStrict(false)
     arg
   }
 
-  private lazy val stringCompletor = StringCompletorResolver.completor
+  private val stringCompletor = StringCompletorResolver.completor
 
   private def getCompletions(line: String, cursorPosition: Int) = {
     val candidates = new ArrayList[CharSequence]()
     argCompletor.complete(line, cursorPosition, candidates)
-    candidates map { _.toString } toList
+    candidates.asScala map { _.toString } toList
   }
 
   /**
@@ -110,7 +132,10 @@ class Repl(compilerOpts: List[String]) {
    * @param onPrintln
    * @return result and a copy of the stdout buffer during the duration of the execution
    */
-  def evaluate(code: String, onPrintln: String => Unit = _ => ()): (EvaluationResult, String) = {
+  def evaluate(
+      code: String,
+      onPrintln: OutputProcessor = NullOutputProcessor
+  ): (EvaluationResult, String) = {
     stdout.flush()
     stdoutBytes.reset()
 
@@ -120,7 +145,7 @@ class Repl(compilerOpts: List[String]) {
       interp.interpret(code)
     }
     stdout.flush()
-    stdoutBytes.aop = _ => ()
+    stdoutBytes.aop = NullOutputProcessor
 
     val result = res match {
       case ReplSuccess =>
@@ -128,7 +153,9 @@ class Repl(compilerOpts: List[String]) {
         val lastHandler: interp.memberHandlers.MemberHandler = request.handlers.last
 
         try {
-          val evalValue = if (lastHandler.definesValue) { // This is true for def's with no parameters, not sure that executing/outputting this is desirable
+          val evalValue = if (lastHandler.definesValue) {
+            // This is true for def's with no parameters,
+            // not sure that executing/outputting this is desirable
             // CY: So for whatever reason, line.evalValue attemps to call the $eval method
             // on the class...a method that does not exist. Not sure if this is a bug in the
             // REPL or some artifact of how we are calling it.
@@ -142,7 +169,11 @@ class Repl(compilerOpts: List[String]) {
                 |}""".stripMargin.format(request.importsPreamble, request.fullPath(lastHandler.definesTerm.get), request.importsTrailer)
             if (line.compile(renderObjectCode)) {
               val renderedClass = Class.forName(line.pathTo("$rendered") + request.accessPath.replace('.', '$') + "$", true, interp.classLoader)
-              renderedClass.getMethod("rendered").invoke(renderedClass.getDeclaredField(interp.global.nme.MODULE_INSTANCE_FIELD.toString).get()).asInstanceOf[Widget].toHtml
+              renderedClass
+                  .getMethod("rendered")
+                  .invoke(renderedClass.getDeclaredField(interp.global.nme.MODULE_INSTANCE_FIELD.toString).get())
+                  .asInstanceOf[Widget]
+                  .toHtml
             } else {
               // a line like println(...) is technically a val, but returns null for some reason
               // so wrap it in an option in case that happens...
@@ -155,10 +186,11 @@ class Repl(compilerOpts: List[String]) {
           Success(evalValue)
         }
         catch {
-          case NonFatal(e) =>
+          case NonFatal(e) => {
             val ex = new StringWriter()
             e.printStackTrace(new PrintWriter(ex))
             Failure(ex.toString)
+          }
         }
 
       case ReplIncomplete => Incomplete
@@ -177,7 +209,8 @@ class Repl(compilerOpts: List[String]) {
       }
     }
 
-    // CY: Don't ask to explain why this works. Look at JLineCompletion.JLineTabCompletion.complete.mkDotted
+    // CY: Don't ask to explain why this works.
+    // Look at JLineCompletion.JLineTabCompletion.complete.mkDotted
     // The "regularCompletion" path is the only path that is (likely) to succeed
     // so we want access to that parsed version to pull out the part that was "matched"...
     // ...just...trust me.
@@ -215,5 +248,24 @@ class Repl(compilerOpts: List[String]) {
     } else {
       Seq.empty
     }
+  }
+
+  /**
+   * Reports the virtual directory populated by the Scala interpreter.
+   *
+   * @return the virtual directory populated by the Scala interpreter.
+   */
+  def getVirtualDirectory(): VirtualDirectory = {
+    interp.virtualDirectory
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+
+object Repl extends Logging {
+  private final val instances: mutable.Buffer[Repl] = mutable.Buffer()
+
+  def listInstances(): Seq[Repl] = {
+    return instances.toSeq
   }
 }
