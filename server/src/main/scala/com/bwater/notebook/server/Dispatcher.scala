@@ -19,7 +19,6 @@ import akka.actor.Actor
 import akka.actor.ActorSystem
 import akka.actor.Props
 import akka.actor.actorRef2Scala
-import akka.remote.RemoteClientLifeCycleEvent
 import net.liftweb.json.JField
 import net.liftweb.json.JInt
 import net.liftweb.json.JString
@@ -386,9 +385,9 @@ trait NotebookSession extends Logging {
   ifDebugEnabled {
     system.eventStream.subscribe(system.actorOf(Props(new Actor {
       def receive = {
-        case x => logDebug("Actor Lifecycle event: " + x)
+        case msg: Any => LOG.debug("Actor Lifecycle event: {}", msg)
       }
-    })), classOf[RemoteClientLifeCycleEvent])
+    })), classOf[Object]) // RemoteClientLifeCycleEvent is gone?!
   }
 
 }

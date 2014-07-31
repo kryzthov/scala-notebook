@@ -25,8 +25,6 @@ import akka.actor.ActorSystem
 import akka.actor.AddressFromURIString
 import akka.actor.Deploy
 import akka.actor.ExtendedActorSystem
-import akka.actor.Extension
-import akka.actor.ExtensionKey
 import akka.actor.PoisonPill
 import akka.actor.Props
 import akka.actor.actorRef2Scala
@@ -34,7 +32,6 @@ import akka.remote.RemoteActorRefProvider
 import akka.remote.RemoteScope
 
 class RemoteActorProcess extends ForkableProcess {
-  // http://stackoverflow.com/questions/14995834/programmatically-obtain-ephemeral-port-with-akka
   var _system: ActorSystem = null
 
   def init(args: Seq[String]): String = {
@@ -51,7 +48,7 @@ class RemoteActorProcess extends ForkableProcess {
 
     _system = ActorSystem("Remote", actualCfg)
 
-    val address = GetAddress(_system).address
+    val address = akka.remote.GetAddress(_system).address
     address.toString
     // address.port.getOrElse(sys.error("not a remote actor system: %s".format(cfg))).toString
   }
@@ -64,14 +61,6 @@ class RemoteActorProcess extends ForkableProcess {
 
 // —————————————————————————————————————————————————————————————————————————————————————————————————
 
-class FindAddressImpl(system: ExtendedActorSystem) extends Extension {
-  def address = system.provider match {
-    case rarp: RemoteActorRefProvider => rarp.transport.address
-    case _ => system.provider.rootPath.address
-  }
-}
-
-object GetAddress extends ExtensionKey[FindAddressImpl]
 case object RemoteShutdown
 
 // —————————————————————————————————————————————————————————————————————————————————————————————————

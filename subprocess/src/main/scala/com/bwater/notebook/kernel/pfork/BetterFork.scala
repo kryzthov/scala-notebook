@@ -178,7 +178,7 @@ object BetterFork {
     val socket = new Socket("127.0.0.1", parentPort)
     val remainingArgs = args.drop(2).toIndexedSeq
     val hostedClass = Class.forName(className).newInstance().asInstanceOf[ForkableProcess]
-    val result = hostedClass.init(remainingArgs)
+    val result: String = hostedClass.init(remainingArgs)
     val oos = new ObjectOutputStream(socket.getOutputStream)
     oos.writeObject(result)
     oos.flush()
