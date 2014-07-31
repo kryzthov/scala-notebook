@@ -61,12 +61,17 @@ object Server extends Logging {
     p
   }
 
-  def startServer(args: Array[String], config: ScalaNotebookConfig)(startAction: (String) => Unit) {
+  def startServer(
+      args: Array[String],
+      config: ScalaNotebookConfig
+  )(
+      startAction: (String) => Unit
+  ) {
     PropertyConfigurator.configure(getClass.getResource("/log4j.server.properties"))
     val classpath = System.getProperty("java.class.path").split(":")
     logDebug("ScalaNotebook server classpath:\n%s".format(classpath.map { cp => "\t" + cp }.mkString("\n")))
 
-    val secure = !args.contains("--disable_security")
+    val secure: Boolean = !args.contains("--disable_security")
 
     logInfo("Running SN Server in " + config.notebooksDir.getAbsolutePath)
     val NotebookArg = "--notebook=(\\S+)".r

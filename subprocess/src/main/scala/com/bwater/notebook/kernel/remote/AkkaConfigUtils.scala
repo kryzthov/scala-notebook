@@ -28,17 +28,27 @@ object AkkaConfigUtils {
       RequireCookiePath -> "on"
     )).withFallback(baseConfig)
 
-  /** If the specified configuration requires a secure requiredCookie, but does not define the requiredCookie value, this generates a new config with an appropriate value. */
-  def optSecureCookie(baseConfig: Config, cookie: => String) =
+  /**
+   * If the specified configuration requires a secure requiredCookie,
+   * but does not define the requiredCookie value,
+   * this generates a new config with an appropriate value.
+   */
+  def optSecureCookie(baseConfig: Config, cookie: => String): Config = {
     requiredCookie(baseConfig).map {
       req => if (req.isEmpty) {
         ConfigFactory.parseMap(Map(SecureCookiePath -> cookie)).withFallback(baseConfig)
       } else baseConfig
     } getOrElse baseConfig
+  }
 
   /** Returns the secure requiredCookie value if the specified Config requires their use. */
-  def requiredCookie(config: Config) =
+  def requiredCookie(config: Config): Option[String] =
     if (config.getBoolean(RequireCookiePath)) {
-      Some(config.getString(SecureCookiePath))
-    } else None
+      if (config.hasPath(SecureCookiePath))
+        Some(config.getString(SecureCookiePath))
+      else
+        Some("")
+    } else {
+      None
+    }
 }
